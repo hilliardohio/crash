@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hilliard Crash Dashboard</title>
+<meta name="description" content="Interactive map and reports built from City of Hilliard (OH-1) traffic crash reports.">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/leaflet-heat.js"></script>
+<script src="vendor/chart.umd.min.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f3f4f2; --surface: #fcfcfb; --surface-2: #eceeea; --border: #d9dbd6;
+    --text: #0b0b0b; --text-2: #52514e; --text-3: #7a7975;
+    --accent: #2a78d6; --accent-soft: #cde2fb;
+    --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100; --series-5: #e87ba4;
+    /* severity: one warm hue, light -> dark (ordinal) */
+    --sev5: #f5b199; --sev4: #ee8a5c; --sev3: #e5612c; --sev2: #b9431a; --sev1: #6f2208;
+    --good: #008300; --warn: #c98500; --crit: #c62828;
+    --shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #141513; --surface: #1d1e1c; --surface-2: #262724; --border: #3a3b37;
+      --text: #f0efec; --text-2: #c3c2b7; --text-3: #8f8e88;
+      --accent: #3987e5; --accent-soft: #1c3a5e;
+      --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; --series-5: #d55181;
+      --sev5: #8a4a30; --sev4: #b5623a; --sev3: #d97a4a; --sev2: #f0a07a; --sev1: #ffd2bd;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #141513; --surface: #1d1e1c; --surface-2: #262724; --border: #3a3b37;
+    --text: #f0efec; --text-2: #c3c2b7; --text-3: #8f8e88;
+    --accent: #3987e5; --accent-soft: #1c3a5e;
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; --series-5: #d55181;
+    --sev5: #8a4a30; --sev4: #b5623a; --sev3: #d97a4a; --sev2: #f0a07a; --sev1: #ffd2bd;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  a { color: var(--accent); }
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 16px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; }
+  header h1 { font-size: 20px; margin: 0; letter-spacing: -.01em; }
+  header .sub { color: var(--text-2); font-size: 13px; }
+  header .spacer { flex: 1; }
+  header .meta { color: var(--text-3); font-size: 12px; }
+  .banner { background: #fff3cd; color: #5b4300; border-bottom: 1px solid #e8d48a; padding: 8px 16px; font-size: 13px; display: none; }
+  :root[data-theme="dark"] .banner, :root:not([data-theme="light"]) .banner.dark-aware { }
+  main { padding: 16px; max-width: 1500px; margin: 0 auto; }
+
+  /* filters */
+  .filters { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: end; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; box-shadow: var(--shadow); }
+  .filters label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-2); text-transform: uppercase; letter-spacing: .04em; }
+  .filters select, .filters input { font: inherit; font-size: 13px; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; min-width: 130px; }
+  .filters input[type=search] { min-width: 180px; }
+  .filters .chips { display: flex; gap: 6px; flex-wrap: wrap; align-self: end; }
+  .chip { font-size: 12px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); border-radius: 999px; padding: 5px 10px; cursor: pointer; user-select: none; }
+  .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+  .btn { font: inherit; font-size: 13px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); border-radius: 7px; padding: 6px 10px; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; box-shadow: var(--shadow); }
+  .tile .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-2); }
+  .tile .v { font-size: 26px; font-weight: 600; letter-spacing: -.02em; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .tile .s { font-size: 12px; color: var(--text-3); }
+
+  /* layout */
+  .grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; }
+  @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+  .card h2 { font-size: 14px; margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .card h2 .r { margin-left: auto; display: flex; gap: 6px; align-items: center; font-weight: 400; font-size: 12px; color: var(--text-2); }
+  #map { height: 560px; background: var(--surface-2); }
+  @media (max-width: 1000px) { #map { height: 420px; } }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 8px 14px; font-size: 12px; color: var(--text-2); border-top: 1px solid var(--border); }
+  .legend span.sw::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; background: var(--c); border: 1px solid rgba(0,0,0,.25); }
+  .leaflet-popup-content { font: 13px/1.4 system-ui, sans-serif; color: #111; }
+  .leaflet-popup-content b { display: block; font-size: 14px; margin-bottom: 4px; }
+  .leaflet-popup-content .sev { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; color: #fff; background: #333; margin-bottom: 6px; }
+  .leaflet-popup-content dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; }
+  .leaflet-popup-content dt { color: #666; } .leaflet-popup-content dd { margin: 0; }
+  .leaflet-popup-content .narr { margin-top: 6px; color: #333; font-size: 12px; max-height: 90px; overflow: auto; }
+
+  /* report */
+  .report-ctl { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); align-items: center; }
+  .report-ctl select { font: inherit; font-size: 13px; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; }
+  .chart-wrap { padding: 10px 14px 4px; position: relative; }
+  .chart-wrap canvas { width: 100% !important; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 10px; border-top: 1px solid var(--border); }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); font-weight: 600; cursor: pointer; white-space: nowrap; }
+  th.sorted::after { content: " ▾"; } th.sorted.asc::after { content: " ▴"; }
+  td.n, th.n { text-align: right; white-space: nowrap; }
+  .bar { display: inline-block; height: 8px; background: var(--series-1); border-radius: 0 4px 4px 0; vertical-align: middle; margin-right: 6px; }
+  .tbl-wrap { max-height: 360px; overflow: auto; }
+  .list-wrap { max-height: 480px; overflow: auto; }
+  tbody tr.row { cursor: pointer; } tbody tr.row:hover { background: var(--surface-2); }
+  .sevdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; border: 1px solid rgba(0,0,0,.25); vertical-align: -1px; }
+  .muted { color: var(--text-3); } .small { font-size: 12px; }
+  footer { color: var(--text-3); font-size: 12px; padding: 18px 16px 30px; text-align: center; }
+  .stack { display: grid; gap: 14px; align-content: start; }
+  .nodata { padding: 30px; text-align: center; color: var(--text-3); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Hilliard Traffic Crash Dashboard</h1>
+  <span class="sub">Crash locations and basic reports from Hilliard Police OH-1 crash reports</span>
+  <span class="spacer"></span>
+  <span class="meta" id="meta">Loading…</span>
+</header>
+<div class="banner" id="banner"></div>
+
+<main>
+  <section class="filters" id="filters">
+    <label>From <input type="date" id="f-from"></label>
+    <label>To <input type="date" id="f-to"></label>
+    <label>Severity <select id="f-severity"><option value="">All</option></select></label>
+    <label>Light <select id="f-light_condition"><option value="">All</option></select></label>
+    <label>Weather <select id="f-weather"><option value="">All</option></select></label>
+    <label>Road condition <select id="f-road_condition"><option value="">All</option></select></label>
+    <label>Manner of collision <select id="f-manner_of_collision"><option value="">All</option></select></label>
+    <label>At-fault driver age <select id="f-unit_in_error_driver_age_band"><option value="">All</option></select></label>
+    <label>Day of week <select id="f-day_of_week"><option value="">All</option></select></label>
+    <label>Road / intersection <input type="search" id="f-road" placeholder="e.g. Cemetery"></label>
+    <div class="chips">
+      <span class="chip" data-flag="alcohol_suspected">Alcohol</span>
+      <span class="chip" data-flag="drug_suspected">Drugs</span>
+      <span class="chip" data-flag="distracted">Distracted</span>
+      <span class="chip" data-flag="within_intersection">In intersection</span>
+      <span class="chip" data-flag="pedestrian_or_bicycle">Ped / bike</span>
+      <span class="chip" data-flag="motorcycle">Motorcycle</span>
+      <span class="chip" data-flag="citation_issued">Cited</span>
+      <span class="chip" data-flag="hit_skip">Hit / skip</span>
+    </div>
+    <button class="btn" id="reset">Reset</button>
+  </section>
+
+  <section class="tiles" id="tiles"></section>
+
+  <div class="grid">
+    <div class="stack">
+      <div class="card">
+        <h2>Crash map
+          <span class="r">
+            <label><input type="checkbox" id="heat"> Heat map</label>
+            <label><input type="checkbox" id="fit" checked> Fit to results</label>
+          </span>
+        </h2>
+        <div id="map"></div>
+        <div class="legend" id="legend"></div>
+      </div>
+      <div class="card">
+        <h2>Crashes in view <span class="r"><span id="list-count" class="muted"></span> <button class="btn" id="dl-list">Download CSV</button></span></h2>
+        <div class="list-wrap"><table id="list"><thead><tr>
+          <th data-k="crash_datetime" class="sorted">Date &amp; time</th><th data-k="location_road">Road</th><th data-k="reference_road">At / near</th>
+          <th data-k="severity_code">Severity</th><th data-k="manner_of_collision">Manner</th><th data-k="unit_in_error_driver_age" class="n">Driver age</th>
+          <th data-k="primary_contributing_circumstance">Contributing</th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="card">
+        <h2>Report builder</h2>
+        <div class="report-ctl">
+          <label class="small">Count crashes by&nbsp;
+            <select id="r-dim"></select>
+          </label>
+          <label class="small">Split by&nbsp;
+            <select id="r-split"><option value="">(none)</option></select>
+          </label>
+          <button class="btn" id="dl-report">Download CSV</button>
+        </div>
+        <div class="chart-wrap"><canvas id="chart" height="300"></canvas></div>
+        <div class="tbl-wrap"><table id="rtable"><thead></thead><tbody></tbody></table></div>
+      </div>
+      <div class="card">
+        <h2>Hot spots <span class="r muted">top locations by crash count</span></h2>
+        <div class="tbl-wrap"><table id="hot"><thead><tr><th>Location</th><th class="n">Crashes</th><th class="n">Injury</th><th class="n">Fatal</th><th class="n">Alcohol</th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+  </div>
+</main>
+<footer>
+  City of Hilliard · Data extracted from Ohio OH-1 Traffic Crash Reports (Hilliard Police Department). Personal information is not included.
+  Crash locations are the latitude/longitude recorded on the report. <span id="gen"></span>
+</footer>
+
+<script>
+(() => {
+  // ------------------------------------------------------------------ config
+  const DATA_URL = new URLSearchParams(location.search).get('data') || 'data/crashes.json';
+  const SEV_COLOR = {1: 'var(--sev1)', 2: 'var(--sev2)', 3: 'var(--sev3)', 4: 'var(--sev4)', 5: 'var(--sev5)'};
+  const SEV_LABEL = {1: 'Fatal', 2: 'Serious injury', 3: 'Minor injury', 4: 'Injury possible', 5: 'Property damage only'};
+  const DOW = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const AGE_ORDER = ['Under 16','16–20','21–24','25–34','35–44','45–54','55–64','65–74','75+','Unknown'];
+  const HOURS = [...Array(24).keys()].map(h => hourLabel(h));
+  function hourLabel(h) { const s = h % 12 === 0 ? 12 : h % 12; return `${s} ${h < 12 ? 'AM' : 'PM'}`; }
+
+  // dimensions available in the report builder: key -> {label, get(crash), order}
+  const DIMS = {
+    hour:        {label: 'Hour of day',            get: c => c.hour == null ? 'Unknown' : hourLabel(c.hour), order: HOURS},
+    day_of_week: {label: 'Day of week',            get: c => c.day_of_week || 'Unknown', order: DOW},
+    month:       {label: 'Month',                  get: c => c.month ? MONTHS[c.month - 1] : 'Unknown', order: MONTHS},
+    ym:          {label: 'Month (by year)',        get: c => c.crash_date ? c.crash_date.slice(0, 7) : 'Unknown', order: 'sortkey'},
+    year:        {label: 'Year',                   get: c => c.year || 'Unknown', order: 'sortkey'},
+    severity:    {label: 'Crash severity',         get: c => c.severity || 'Unknown', order: Object.values(SEV_LABEL).map((_, i) => null), sevOrder: true},
+    unit_in_error_driver_age_band: {label: 'At-fault driver age', get: c => c.unit_in_error_driver_age_band || 'Unknown', order: AGE_ORDER},
+    driver_age_band: {label: 'All driver ages (per driver)', get: c => c.driver_age_bands && c.driver_age_bands.length ? c.driver_age_bands : ['Unknown'], order: AGE_ORDER},
+    unit_in_error_driver_gender: {label: 'At-fault driver gender', get: c => c.unit_in_error_driver_gender || 'Unknown'},
+    driver_gender: {label: 'All driver genders (per driver)', get: c => c.driver_genders && c.driver_genders.length ? c.driver_genders : ['Unknown']},
+    light_condition: {label: 'Light condition', get: c => c.light_condition || 'Unknown'},
+    weather:     {label: 'Weather',                get: c => c.weather || 'Unknown'},
+    road_condition: {label: 'Road condition',      get: c => c.road_condition || 'Unknown'},
+    manner_of_collision: {label: 'Manner of collision', get: c => c.manner_of_collision || 'Unknown'},
+    primary_contributing_circumstance: {label: 'Contributing circumstance (at-fault unit)', get: c => c.primary_contributing_circumstance || 'Unknown'},
+    primary_unit_type: {label: 'At-fault unit type', get: c => c.primary_unit_type || 'Unknown'},
+    unit_types:  {label: 'Unit types involved (per unit type)', get: c => c.unit_types && c.unit_types.length ? c.unit_types : ['Unknown']},
+    location_road: {label: 'Road',                 get: c => c.location_road || 'Unknown'},
+    intersection: {label: 'Road + cross street',   get: c => locKey(c)},
+    first_harmful_event_location: {label: 'Location of first harmful event', get: c => c.first_harmful_event_location || 'Unknown'},
+    within_intersection: {label: 'Intersection related', get: c => c.within_intersection ? 'Within intersection / approach' : 'Not intersection related'},
+    alcohol_suspected: {label: 'Alcohol suspected', get: c => c.alcohol_suspected ? 'Alcohol suspected' : 'Not suspected'},
+    distracted:  {label: 'Driver distracted',      get: c => c.distracted ? 'Distracted' : 'Not distracted'},
+    citation_issued: {label: 'Citation issued',    get: c => c.citation_issued ? 'Cited' : 'No citation'},
+    hit_skip:    {label: 'Hit / skip',             get: c => c.hit_skip ? 'Hit / skip (' + c.hit_skip.toLowerCase() + ')' : 'Not hit/skip'},
+    private_property: {label: 'Private property', get: c => c.private_property ? 'Private property' : 'Public roadway'},
+  };
+  const SPLITS = ['severity', 'unit_in_error_driver_gender', 'light_condition', 'weather', 'road_condition', 'alcohol_suspected', 'within_intersection', 'year', 'day_of_week', 'unit_in_error_driver_age_band'];
+
+  function locKey(c) {
+    const a = c.location_road || 'Unknown road';
+    const b = c.reference_road;
+    if (!b) return a;
+    return /^\d+$/.test(b) ? `${b} ${a}` : `${a} & ${b}`;
+  }
+  const sevNum = s => Object.keys(SEV_LABEL).find(k => SEV_LABEL[k] === s || s.startsWith(SEV_LABEL[k])) || 9;
+  const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+  const fmtDT = iso => { if (!iso) return ''; const d = new Date(iso); return d.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) + ' ' + d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'}); };
+
+  // ------------------------------------------------------------------ state
+  let ALL = [], VIEW = [], map, markerLayer, heatLayer, chart, sortKey = 'crash_datetime', sortAsc = false;
+  const flags = new Set();
+  const $ = id => document.getElementById(id);
+
+  // ------------------------------------------------------------------ load
+  fetch(DATA_URL).then(r => { if (!r.ok) throw new Error(r.status + ' ' + r.statusText); return r.json(); }).then(d => {
+    ALL = (d.crashes || []).map(c => ({...c, severity_label: SEV_LABEL[c.severity_code] || c.severity || 'Unknown'}));
+    $('gen').textContent = d.generated ? `Data generated ${d.generated}.` : '';
+    if (d.synthetic) { const b = $('banner'); b.style.display = 'block'; b.textContent = 'Preview mode: this page is showing SYNTHETIC sample data, not real crash reports. Load real data with the extractor and remove ?data=… from the address.'; }
+    init();
+  }).catch(e => { $('meta').textContent = 'Could not load ' + DATA_URL + ' (' + e.message + ')'; $('map').innerHTML = '<div class="nodata">No data loaded. Run oh1_extract.py to create data/crashes.json.</div>'; });
+
+  function init() {
+    // filters
+    fillSelect('f-severity', ALL.map(c => c.severity_label), Object.values(SEV_LABEL));
+    fillSelect('f-light_condition', ALL.map(c => c.light_condition));
+    fillSelect('f-weather', ALL.map(c => c.weather));
+    fillSelect('f-road_condition', ALL.map(c => c.road_condition));
+    fillSelect('f-manner_of_collision', ALL.map(c => c.manner_of_collision));
+    fillSelect('f-unit_in_error_driver_age_band', ALL.map(c => c.unit_in_error_driver_age_band), AGE_ORDER);
+    fillSelect('f-day_of_week', ALL.map(c => c.day_of_week), DOW);
+    const dates = ALL.map(c => c.crash_date).filter(Boolean).sort();
+    if (dates.length) { $('f-from').value = dates[0]; $('f-to').value = dates[dates.length - 1]; }
+    document.querySelectorAll('#filters select, #filters input').forEach(el => el.addEventListener('input', apply));
+    document.querySelectorAll('.chip').forEach(ch => ch.addEventListener('click', () => { ch.classList.toggle('on'); const f = ch.dataset.flag; flags.has(f) ? flags.delete(f) : flags.add(f); apply(); }));
+    $('reset').addEventListener('click', () => { document.querySelectorAll('#filters select').forEach(s => s.value = ''); $('f-road').value = ''; if (dates.length) { $('f-from').value = dates[0]; $('f-to').value = dates[dates.length - 1]; } flags.clear(); document.querySelectorAll('.chip').forEach(c => c.classList.remove('on')); apply(); });
+
+    // report selects
+    for (const [k, d] of Object.entries(DIMS)) $('r-dim').add(new Option(d.label, k));
+    for (const k of SPLITS) $('r-split').add(new Option(DIMS[k].label, k));
+    $('r-dim').value = 'hour';
+    $('r-dim').addEventListener('change', report); $('r-split').addEventListener('change', report);
+    $('dl-report').addEventListener('click', downloadReport);
+    $('dl-list').addEventListener('click', downloadList);
+    document.querySelectorAll('#list th').forEach(th => th.addEventListener('click', () => { const k = th.dataset.k; if (sortKey === k) sortAsc = !sortAsc; else { sortKey = k; sortAsc = k !== 'crash_datetime'; } renderList(); }));
+
+    // map
+    map = L.map('map', {scrollWheelZoom: true}).setView([40.0334, -83.1582], 13);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'}).addTo(map);
+    markerLayer = L.layerGroup().addTo(map);
+    $('heat').addEventListener('change', drawMap); $('fit').addEventListener('change', drawMap);
+    $('legend').innerHTML = Object.keys(SEV_LABEL).map(k => `<span class="sw" style="--c:${SEV_COLOR[k]}">${SEV_LABEL[k]}</span>`).join('') + '<span class="muted" style="margin-left:auto">Marker size grows with persons injured · click a marker for details</span>';
+    apply();
+  }
+
+  function fillSelect(id, values, order) {
+    const set = [...new Set(values.filter(Boolean))];
+    const sorted = order ? order.filter(v => set.includes(v)).concat(set.filter(v => !order.includes(v))) : set.sort();
+    const sel = $(id); for (const v of sorted) sel.add(new Option(v, v));
+  }
+
+  // ------------------------------------------------------------------ filtering
+  function apply() {
+    const from = $('f-from').value, to = $('f-to').value, road = $('f-road').value.trim().toLowerCase();
+    const sel = {};
+    for (const k of ['severity', 'light_condition', 'weather', 'road_condition', 'manner_of_collision', 'unit_in_error_driver_age_band', 'day_of_week']) sel[k] = $('f-' + k).value;
+    VIEW = ALL.filter(c => {
+      if (from && c.crash_date && c.crash_date < from) return false;
+      if (to && c.crash_date && c.crash_date > to) return false;
+      if (sel.severity && c.severity_label !== sel.severity) return false;
+      for (const k of ['light_condition', 'weather', 'road_condition', 'manner_of_collision', 'unit_in_error_driver_age_band', 'day_of_week']) if (sel[k] && (c[k] || '') !== sel[k]) return false;
+      if (road && !(locKey(c).toLowerCase().includes(road) || (c.narrative || '').toLowerCase().includes(road))) return false;
+      for (const f of flags) if (!c[f]) return false;
+      return true;
+    });
+    $('meta').textContent = `${VIEW.length.toLocaleString()} of ${ALL.length.toLocaleString()} crashes shown`;
+    renderTiles(); drawMap(); renderList(); report(); hotspots();
+  }
+
+  // ------------------------------------------------------------------ tiles
+  function renderTiles() {
+    const n = VIEW.length, inj = VIEW.filter(c => c.severity_code && c.severity_code <= 4).length, fatal = VIEW.reduce((a, c) => a + (c.fatal_count || 0), 0);
+    const injured = VIEW.reduce((a, c) => a + (c.injured_count || 0), 0), alc = VIEW.filter(c => c.alcohol_suspected || c.drug_suspected).length;
+    const ped = VIEW.filter(c => c.pedestrian_or_bicycle).length, intr = VIEW.filter(c => c.within_intersection).length;
+    const pct = x => n ? Math.round(100 * x / n) + '%' : '–';
+    const resp = VIEW.map(c => c.response_minutes).filter(v => typeof v === 'number' && v >= 0 && v < 120);
+    const tiles = [
+      ['Crashes', n.toLocaleString(), 'in current filter'],
+      ['Injury crashes', inj.toLocaleString(), pct(inj) + ' of crashes'],
+      ['Fatalities', fatal.toLocaleString(), 'persons killed'],
+      ['Persons injured', injured.toLocaleString(), 'all units'],
+      ['Alcohol / drug', alc.toLocaleString(), pct(alc) + ' suspected'],
+      ['Intersection related', intr.toLocaleString(), pct(intr)],
+      ['Ped / bike', ped.toLocaleString(), 'crashes involving'],
+      ['Median response', resp.length ? median(resp).toFixed(0) + ' min' : '–', 'dispatch to arrival'],
+    ];
+    $('tiles').innerHTML = tiles.map(t => `<div class="tile"><div class="k">${t[0]}</div><div class="v">${t[1]}</div><div class="s">${t[2]}</div></div>`).join('');
+  }
+  const median = a => { const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+
+  // ------------------------------------------------------------------ map
+  function drawMap() {
+    markerLayer.clearLayers();
+    if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
+    const pts = VIEW.filter(c => typeof c.latitude === 'number' && typeof c.longitude === 'number' && c.latitude > 39 && c.latitude < 41 && c.longitude < -82 && c.longitude > -84);
+    if ($('heat').checked) {
+      heatLayer = L.heatLayer(pts.map(c => [c.latitude, c.longitude, 1 + (c.injured_count || 0)]), {radius: 22, blur: 18, maxZoom: 16, gradient: {0.2: '#f5b199', 0.5: '#e5612c', 0.8: '#b9431a', 1: '#6f2208'}}).addTo(map);
+    }
+    // draw least severe first so fatal/serious sit on top
+    for (const c of [...pts].sort((a, b) => (b.severity_code || 5) - (a.severity_code || 5))) {
+      const r = 6 + Math.min(6, (c.injured_count || 0) * 2);
+      const m = L.circleMarker([c.latitude, c.longitude], {radius: r, color: '#1a1a19', weight: 1, opacity: .8, fillColor: cssVar('--sev' + (c.severity_code || 5)), fillOpacity: $('heat').checked ? .35 : .85});
+      m.bindPopup(popup(c), {maxWidth: 320});
+      m.addTo(markerLayer);
+    }
+    if ($('fit').checked && pts.length) {
+      const b = L.latLngBounds(pts.map(c => [c.latitude, c.longitude]));
+      map.fitBounds(b.pad(0.15), {maxZoom: 16});
+    }
+  }
+  function popup(c) {
+    const drivers = (c.persons || []).filter(p => (p.role || '').startsWith('Driver'));
+    const rows = [
+      ['When', fmtDT(c.crash_datetime)],
+      ['Manner', c.manner_of_collision],
+      ['Units', c.number_of_units],
+      ['Drivers', drivers.map(p => `${p.age ?? '?'} ${p.gender ? p.gender[0] : ''}${p.unit_number === c.unit_in_error ? ' (at fault)' : ''}`).join(', ')],
+      ['Contributing', c.primary_contributing_circumstance],
+      ['Light / weather', [c.light_condition, c.weather, c.road_condition].filter(Boolean).join(' · ')],
+      ['Injured', c.injured_count], ['Flags', ['alcohol_suspected', 'drug_suspected', 'distracted', 'citation_issued', 'within_intersection', 'pedestrian_or_bicycle', 'hit_skip'].filter(f => c[f]).map(f => f.replace(/_/g, ' ')).join(', ') || '—'],
+    ];
+    return `<b>${esc(locKey(c))}</b><span class="sev" style="background:${cssVar('--sev' + (c.severity_code || 5))};color:${(c.severity_code || 5) >= 4 ? '#222' : '#fff'}">${esc(c.severity_label)}</span>` +
+      `<dl>${rows.filter(r => r[1] !== undefined && r[1] !== null && r[1] !== '').map(r => `<dt>${r[0]}</dt><dd>${esc(r[1])}</dd>`).join('')}</dl>` +
+      (c.narrative ? `<div class="narr">${esc(c.narrative)}</div>` : '') + (c.report_number ? `<div class="narr muted">Report ${esc(c.report_number)}</div>` : '');
+  }
+
+  // ------------------------------------------------------------------ crash list
+  function renderList() {
+    const rows = [...VIEW].sort((a, b) => { let x = a[sortKey], y = b[sortKey]; if (x == null) x = ''; if (y == null) y = ''; const r = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y)); return sortAsc ? r : -r; });
+    document.querySelectorAll('#list th').forEach(th => { th.classList.toggle('sorted', th.dataset.k === sortKey); th.classList.toggle('asc', th.dataset.k === sortKey && sortAsc); });
+    $('list-count').textContent = rows.length.toLocaleString() + ' crashes';
+    const tb = $('list').querySelector('tbody');
+    tb.innerHTML = rows.slice(0, 500).map((c, i) => `<tr class="row" data-i="${ALL.indexOf(c)}"><td>${fmtDT(c.crash_datetime)}</td><td>${esc(c.location_road)}</td><td>${esc(c.reference_road)}</td>` +
+      `<td><span class="sevdot" style="background:${cssVar('--sev' + (c.severity_code || 5))}"></span>${esc(c.severity_label)}</td><td>${esc(c.manner_of_collision)}</td><td class="n">${c.unit_in_error_driver_age ?? ''}</td><td>${esc(c.primary_contributing_circumstance)}</td></tr>`).join('') + (rows.length > 500 ? `<tr><td colspan="7" class="muted">Showing first 500 — narrow the filter or download the CSV.</td></tr>` : '');
+    tb.querySelectorAll('tr.row').forEach(tr => tr.addEventListener('click', () => { const c = ALL[+tr.dataset.i]; if (typeof c.latitude === 'number') { map.setView([c.latitude, c.longitude], 17); markerLayer.eachLayer(m => { const ll = m.getLatLng(); if (Math.abs(ll.lat - c.latitude) < 1e-7 && Math.abs(ll.lng - c.longitude) < 1e-7) m.openPopup(); }); window.scrollTo({top: 0, behavior: 'smooth'}); } }));
+  }
+
+  // ------------------------------------------------------------------ report builder
+  function tally(dimKey, splitKey) {
+    const dim = DIMS[dimKey], split = splitKey ? DIMS[splitKey] : null;
+    const counts = new Map(), splitVals = new Set();
+    for (const c of VIEW) {
+      const vs = [].concat(dim.get(c)); const svs = split ? [].concat(split.get(c)) : [''];
+      for (const v of vs) { if (!counts.has(v)) counts.set(v, new Map()); for (const s of svs) { splitVals.add(s); counts.get(v).set(s, (counts.get(v).get(s) || 0) + 1); } }
+    }
+    let cats = [...counts.keys()];
+    cats = orderCats(cats, dim, counts);
+    let splits = orderCats([...splitVals], split || {}, null);
+    return {cats, splits, counts};
+  }
+  function orderCats(cats, dim, counts) {
+    if (dim.sevOrder) return cats.sort((a, b) => sevNum(a) - sevNum(b));
+    if (Array.isArray(dim.order)) return dim.order.filter(v => cats.includes(v)).concat(cats.filter(v => !dim.order.includes(v)).sort());
+    if (dim.order === 'sortkey') return cats.sort();
+    if (counts) return cats.sort((a, b) => sum(counts.get(b)) - sum(counts.get(a)));
+    return cats.sort();
+  }
+  const sum = m => [...m.values()].reduce((a, b) => a + b, 0);
+
+  function report() {
+    const dimKey = $('r-dim').value, splitKey = $('r-split').value;
+    const {cats, splits, counts} = tally(dimKey, splitKey);
+    const total = VIEW.length || 1;
+    const MAXCATS = 25;
+    const shown = cats.slice(0, MAXCATS);
+    const seriesColor = (s, i) => splitKey === 'severity' ? cssVar('--sev' + sevNum(s)) : cssVar('--series-' + (Math.min(i, 7) + 1));
+    const datasets = splitKey
+      ? splits.slice(0, 8).map((s, i) => ({label: s, data: shown.map(v => counts.get(v).get(s) || 0), backgroundColor: seriesColor(s, i), borderRadius: 3, borderSkipped: 'start', borderWidth: {top: 2}, borderColor: cssVar('--surface')}))
+      : [{label: 'Crashes', data: shown.map(v => sum(counts.get(v))), backgroundColor: cssVar('--series-1'), borderRadius: 3, borderSkipped: 'start'}];
+    if (chart) chart.destroy();
+    const horizontal = shown.length > 24 || shown.some(v => String(v).length > 14);
+    const textColor = cssVar('--text-2'), gridColor = cssVar('--border');
+    chart = new Chart($('chart'), {
+      type: 'bar',
+      data: {labels: shown.map(String), datasets},
+      options: {
+        indexAxis: horizontal ? 'y' : 'x', responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: {legend: {display: !!splitKey, position: 'bottom', labels: {color: textColor, boxWidth: 10, usePointStyle: true, pointStyle: 'circle'}}, tooltip: {mode: 'index', intersect: false}},
+        scales: {
+          x: {stacked: !!splitKey, grid: {color: horizontal ? gridColor : 'transparent'}, ticks: {color: textColor, precision: 0, autoSkip: !horizontal, maxRotation: 45}},
+          y: {stacked: !!splitKey, grid: {color: horizontal ? 'transparent' : gridColor}, ticks: {color: textColor, precision: 0, autoSkip: false}, beginAtZero: true},
+        },
+      },
+    });
+    $('chart').parentElement.style.height = (horizontal ? Math.max(220, 26 * shown.length + 60) : 300) + 'px';
+    chart.resize();
+    // table
+    const head = $('rtable').querySelector('thead'), body = $('rtable').querySelector('tbody');
+    const max = Math.max(1, ...cats.map(v => sum(counts.get(v))));
+    head.innerHTML = `<tr><th>${esc(DIMS[dimKey].label)}</th><th class="n">Crashes</th><th class="n">Share</th>${splitKey ? splits.map(s => `<th class="n">${esc(s)}</th>`).join('') : ''}</tr>`;
+    body.innerHTML = cats.map(v => { const n = sum(counts.get(v)); return `<tr><td>${esc(v)}</td><td class="n"><span class="bar" style="width:${Math.round(60 * n / max)}px"></span>${n}</td><td class="n">${(100 * n / total).toFixed(1)}%</td>${splitKey ? splits.map(s => `<td class="n">${counts.get(v).get(s) || 0}</td>`).join('') : ''}</tr>`; }).join('') +
+      `<tr><td><b>Total</b></td><td class="n"><b>${VIEW.length}</b></td><td class="n">100%</td>${splitKey ? splits.map(s => `<td class="n">${cats.reduce((a, v) => a + (counts.get(v).get(s) || 0), 0)}</td>`).join('') : ''}</tr>`;
+    if (cats.length > MAXCATS) body.insertAdjacentHTML('beforeend', `<tr><td colspan="${3 + splits.length}" class="muted small">Chart shows the top ${MAXCATS} of ${cats.length} values; the table and CSV include all.</td></tr>`);
+    if (DIMS[dimKey].get.toString().includes('[') ) body.insertAdjacentHTML('beforeend', `<tr><td colspan="${3 + splits.length}" class="muted small">Counted once per driver/unit, so totals can exceed the number of crashes.</td></tr>`);
+  }
+
+  // ------------------------------------------------------------------ hot spots
+  function hotspots() {
+    const m = new Map();
+    for (const c of VIEW) { const k = locKey(c); if (!m.has(k)) m.set(k, {n: 0, inj: 0, fatal: 0, alc: 0, lat: 0, lon: 0}); const o = m.get(k); o.n++; if (c.severity_code && c.severity_code <= 4) o.inj++; o.fatal += c.fatal_count || 0; if (c.alcohol_suspected || c.drug_suspected) o.alc++; if (typeof c.latitude === 'number') { o.lat += c.latitude; o.lon += c.longitude; } }
+    const rows = [...m.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 25);
+    const max = rows.length ? rows[0][1].n : 1;
+    $('hot').querySelector('tbody').innerHTML = rows.map(([k, o]) => `<tr class="row" data-lat="${o.lat / o.n}" data-lon="${o.lon / o.n}"><td>${esc(k)}</td><td class="n"><span class="bar" style="width:${Math.round(50 * o.n / max)}px"></span>${o.n}</td><td class="n">${o.inj}</td><td class="n">${o.fatal}</td><td class="n">${o.alc}</td></tr>`).join('') || '<tr><td colspan="5" class="nodata">No crashes in filter</td></tr>';
+    $('hot').querySelectorAll('tr.row').forEach(tr => tr.addEventListener('click', () => { const la = +tr.dataset.lat, lo = +tr.dataset.lon; if (la) { map.setView([la, lo], 16); window.scrollTo({top: 0, behavior: 'smooth'}); } }));
+  }
+
+  // ------------------------------------------------------------------ downloads
+  function csv(rows) { return rows.map(r => r.map(v => { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(',')).join('\n'); }
+  function save(name, text) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {type: 'text/csv'})); a.download = name; a.click(); }
+  function downloadReport() {
+    const dimKey = $('r-dim').value, splitKey = $('r-split').value; const {cats, splits, counts} = tally(dimKey, splitKey);
+    const rows = [[DIMS[dimKey].label, 'Crashes', 'Share', ...(splitKey ? splits : [])]];
+    for (const v of cats) rows.push([v, sum(counts.get(v)), (100 * sum(counts.get(v)) / (VIEW.length || 1)).toFixed(1) + '%', ...(splitKey ? splits.map(s => counts.get(v).get(s) || 0) : [])]);
+    save(`crash-report-${dimKey}${splitKey ? '-by-' + splitKey : ''}.csv`, csv(rows));
+  }
+  function downloadList() {
+    const cols = ['id', 'crash_datetime', 'location_road', 'reference_road', 'latitude', 'longitude', 'severity', 'manner_of_collision', 'number_of_units', 'unit_in_error_driver_age', 'unit_in_error_driver_gender', 'primary_contributing_circumstance', 'primary_unit_type', 'light_condition', 'weather', 'road_condition', 'within_intersection', 'alcohol_suspected', 'drug_suspected', 'distracted', 'citation_issued', 'injured_count', 'fatal_count', 'pedestrian_or_bicycle', 'hit_skip', 'narrative'];
+    save('crashes-filtered.csv', csv([cols, ...VIEW.map(c => cols.map(k => c[k]))]));
+  }
+})();
+</script>
+</body>
+</html>
