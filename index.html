@@ -285,7 +285,7 @@
 
     // map
     map = L.map('map', {scrollWheelZoom: true}).setView([40.0334, -83.1582], 13);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'}).addTo(map);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(map);
     markerLayer = L.layerGroup().addTo(map);
     $('heat').addEventListener('change', drawMap); $('fit').addEventListener('change', drawMap);
     $('legend').innerHTML = Object.keys(SEV_LABEL).map(k => `<span class="sw" style="--c:${SEV_COLOR[k]}">${SEV_LABEL[k]}</span>`).join('') + '<span class="muted" style="margin-left:auto">Marker size grows with persons injured · click a marker for details</span>';
