@@ -236,10 +236,12 @@
   const SPLITS = ['severity', 'unit_in_error_driver_gender', 'light_condition', 'weather', 'road_condition', 'alcohol_suspected', 'within_intersection', 'year', 'day_of_week', 'unit_in_error_driver_age_band'];
 
   function locKey(c) {
-    const a = c.location_road || 'Unknown road';
-    const b = c.reference_road;
-    if (!b) return a;
-    return /^\d+$/.test(b) ? `${b} ${a}` : `${a} & ${b}`;
+    let a = c.location_road || '', b = c.reference_road || '';
+    if (!a && b && !/^\d+$/.test(b)) { a = b; b = ''; }
+    if (!a) a = 'Unknown road';
+    if (!b || a === b) return a;
+    if (/^\d+$/.test(b)) return `${b} ${a}`;
+    return [a, b].sort().join(' & ');          // same intersection whichever road the officer listed first
   }
   const sevNum = s => Object.keys(SEV_LABEL).find(k => SEV_LABEL[k] === s || s.startsWith(SEV_LABEL[k])) || 9;
   const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
