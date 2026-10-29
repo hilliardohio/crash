@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hilliard Crash Dashboard</title>
 <meta name="description" content="Interactive map and reports built from City of Hilliard (OH-1) traffic crash reports.">
-<link rel="stylesheet" href="vendor/leaflet.css">
-<script src="vendor/leaflet.js"></script>
-<script src="vendor/leaflet-heat.js"></script>
-<script src="vendor/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   :root {
     color-scheme: light;
@@ -257,7 +257,7 @@
     $('gen').textContent = d.generated ? `Data generated ${d.generated}.` : '';
     if (d.synthetic) { const b = $('banner'); b.style.display = 'block'; b.textContent = 'Preview mode: this page is showing SYNTHETIC sample data, not real crash reports. Load real data with the extractor and remove ?data=… from the address.'; }
     init();
-  }).catch(e => { $('meta').textContent = 'Could not load ' + DATA_URL + ' (' + e.message + ')'; $('map').innerHTML = '<div class="nodata">No data loaded. Run oh1_extract.py to create data/crashes.json.</div>'; });
+  }).catch(e => { $("meta").textContent = "Could not start: " + e.message + (typeof L === "undefined" ? " — the Leaflet library did not load" : ""); $('map').innerHTML = '<div class="nodata">The dashboard could not start. See the message in the top-right corner.</div>'; });
 
   function init() {
     // filters
